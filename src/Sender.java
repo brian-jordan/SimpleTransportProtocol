@@ -3,11 +3,31 @@ import java.net.*;
 
 public class Sender {
 	
+	// Socket Constants
 	static DatagramSocket senderSocket;
-	static DatagramPacket request;
+	static DatagramPacket incomingSegment;
+	static Segment received;
 	static byte[] recvBuffer;
 	static int senderSequenceNumber;
 	static int senderACKNumber;
+	static PrintWriter senderLog;
+	
+	// PLD Constants
+	static int numSegmentsHandledPLD;
+	static int numSegmentsDroppedPLD;
+	static int numSegmentsCorruptedPLD;
+	static int numSegmentsReOrderedPLD;
+	static int numSegmentsDuplicated;
+	static int numSegmentsDelayedPLD;
+	
+	// Other Data for Log
+	static int fileLength;
+	static int numSegmentsTrans;
+	static int numTimeoutRetrans;
+	static int numFastRetrans;
+	static int numDupAcks;
+	
+	
 
 	public static void main(String[] args) throws Exception {
 	
@@ -39,20 +59,31 @@ public class Sender {
 		
 		// Convert file into byte array
 		byte[] fileData_s = pdfToByteArray(fileName_s);
+		fileLength = fileData_s.length;
+		String fileLengthString = "" + fileLength;
+		byte[] fileLengthBytes = fileLengthString.getBytes();
 		
-		// TODO
+		// Initialize Sender Log File
+		senderLog = new PrintWriter("Sender_log.txt");
+		senderLog.println("<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
+		
 		// Initialize Connection with Receiver
 		senderSocket = new DatagramSocket();
-		establishConnection(receiver_host_ip, receiver_port);
-		
-		
-		
-		
+		establishConnection(receiver_host_ip, receiver_port, fileLengthBytes);
 		
 		// TODO
-		// If segment is not for connection or teardown send it through PLD module
+		// Initialize Receiver Thread
 		
-		// Have a listener thread waiting for acks and a sender thread sending packets
+		// TODO
+		// Initialize Sender Thread
+		
+		// TODO
+		// Terminate Connection with Receiver
+		
+		// Print Log Statistics and Close Log
+		logStats();
+		senderLog.close();
+		
 	}
 	
 	// Convert file into byte array
@@ -67,22 +98,22 @@ public class Sender {
 	}
 	
 	// Establish connection with receiver
-	public static void establishConnection(InetAddress receiverIP, int receiverPort) throws Exception{
+	public static void establishConnection(InetAddress receiverIP, int receiverPort, byte[] fileLengthB) throws Exception{
 		
 		// Set initial sequence and ack numbers
 		senderSequenceNumber = 0;
 		senderACKNumber = 0;
 		// Send first SYN
-		Segment syn1 = new Segment(null, senderSequenceNumber, senderACKNumber, false, true, false);
+		Segment syn1 = new Segment(fileLengthB, senderSequenceNumber, senderACKNumber, false, true, false);
 		syn1.createDatagramPacket(receiverIP, receiverPort);
 		senderSocket.send(syn1.segment);
 		
 		// Receive first ACK
-		request = new DatagramPacket(new byte[1024], 1024);
-		senderSocket.receive(request);
-		recvBuffer = request.getData();
+		incomingSegment = new DatagramPacket(new byte[1024], 1024);
+		senderSocket.receive(incomingSegment);
+		recvBuffer = incomingSegment.getData();
 		// Process Segment
-		Segment received = new Segment(recvBuffer);
+		received = new Segment(recvBuffer);
 		if (! (received.isSYN && received.isACK && (received.ACKNumber == senderSequenceNumber + 1))){
 			throw new ConnectionException();
 		}
@@ -98,6 +129,27 @@ public class Sender {
 
 	public void PLDmodule(DatagramPacket segment){
 		
+	}
+	
+	// TODO
+	// Logs segment information
+	public static void logSegment(Segment segmentToLog){
+		
+	}
+	
+	// Print Log Statistics
+	public static void logStats(){
+		senderLog.printf("Size of the file: %d Bytes\n", fileLength);
+		senderLog.printf("Segments transmitted: %d\n", numSegmentsTrans);
+		senderLog.printf("Number of Segments handled by PLD: %d\n", numSegmentsHandledPLD);
+		senderLog.printf("Number of Segments Dropped: %d\n", numSegmentsDroppedPLD);
+		senderLog.printf("Number of Segments Corrupted: %d\n", numSegmentsCorruptedPLD);
+		senderLog.printf("Number of Segments Re-ordered: %d\n", numSegmentsReOrderedPLD);
+		senderLog.printf("Number of Segments Duplicated: %d\n", numSegmentsDuplicated);
+		senderLog.printf("Number of Segments Delayed: %d\n", numSegmentsDelayedPLD);
+		senderLog.printf("Number of Retransmissions due to timeout: %d\n", numTimeoutRetrans);
+		senderLog.printf("Number of Fast Retransmissions: %d\n", numFastRetrans);
+		senderLog.printf("Number of Duplicate Acknowledgements received: %d\n", numDupAcks);
 	}
 
 }

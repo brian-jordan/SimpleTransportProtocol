@@ -5,20 +5,30 @@ import java.net.InetAddress;
 
 public class Receiver {
 	
-	// TODO
-	// Figure out how to find file length when creating this
-	static long fileLength_r;
-	static byte[] fileData_r = new byte[6];
+	// Incoming Data Buffer
+	static int fileLength_r;
+	static byte[] fileData_r;
 	
+	// Socket Constants
 	static DatagramSocket receiverSocket;
-	static DatagramPacket request;
+	static DatagramPacket incomingSegment;
 	static Segment received;
 	static byte[] recvBuffer;
 	static int receiverSequenceNumber;
 	static int receiverACKNumber;
+	static PrintWriter receiverLog;
 	
+	// Sender Information
 	static InetAddress sender_host_ip;
 	static int sender_port;
+	
+	// Data to Log
+	static int amountDataReceived;
+	static int numSegmentsReceived;
+	static int numDataSegmentsReceived;
+	static int numDataSegmentsWBitErrors;
+	static int numDupDataSegments;
+	static int numDupAcksSent;
 
 	public static void main(String[] args) throws Exception{
 		// Check for correct number of arguments
@@ -31,14 +41,29 @@ public class Receiver {
 		int receiver_port = Integer.parseInt(args[0]);
 		String fileName_r = args[1];
 		
-		// Convert byte array back into PDF
-		byteArrayToPDF(fileName_r);
+		// Initialize Sender Log File
+		receiverLog = new PrintWriter("Receiver_log.txt");
+		receiverLog.println("<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
 		
 		// Initialize connection with Sender
 		receiverSocket = new DatagramSocket(receiver_port);
 		establishConnection();
 		
-
+		// Initialize Received Data Array
+		fileData_r = new byte[fileLength_r];
+		
+		// TODO
+		// Begin Accepting Data Segments
+		
+		// TODO
+		// Terminate Connection with Sender
+		
+		// Print Log Statistics and Close Log
+		logStats();
+		receiverLog.close();
+		
+		// Convert byte array back into PDF
+		byteArrayToPDF(fileName_r);
 	}
 	
 	// Convert byte array back into PDF
@@ -57,17 +82,20 @@ public class Receiver {
 		receiverACKNumber = 0;
 		
 		// Receive First SYN
-		request = new DatagramPacket(new byte[1024], 1024);
-		receiverSocket.receive(request);
-		recvBuffer = request.getData();
+		incomingSegment = new DatagramPacket(new byte[1024], 1024);
+		receiverSocket.receive(incomingSegment);
+		recvBuffer = incomingSegment.getData();
 		// Get Sender Information
-		sender_host_ip = request.getAddress();
-		sender_port = request.getPort();
+		sender_host_ip = incomingSegment.getAddress();
+		sender_port = incomingSegment.getPort();
 		// Process Segment
 		received = new Segment(recvBuffer);
 		if (! received.isSYN){
 			throw new ConnectionException();
 		}
+		byte[] fileLengthBytes_r = received.segmentPayloadData;
+		String fileLengthString_r = new String(fileLengthBytes_r);
+		fileLength_r = Integer.parseInt(fileLengthString_r);
 		
 		// Adjust Sequence and ACK Numbers
 		receiverACKNumber = received.sequenceNumber + 1;
@@ -77,10 +105,10 @@ public class Receiver {
 		synAck.createDatagramPacket(sender_host_ip, sender_port);
 		receiverSocket.send(synAck.segment);
 		
-		// Recieve Final ACK
-		request = new DatagramPacket(new byte[1024], 1024);
-		receiverSocket.receive(request);
-		recvBuffer = request.getData();
+		// Receive Final ACK
+		incomingSegment = new DatagramPacket(new byte[1024], 1024);
+		receiverSocket.receive(incomingSegment);
+		recvBuffer = incomingSegment.getData();
 		// Process Segment
 		received = new Segment(recvBuffer);
 		if (! (received.isACK && (received.ACKNumber == receiverSequenceNumber + 1))){
@@ -91,5 +119,20 @@ public class Receiver {
 		receiverACKNumber = received.sequenceNumber + 1;
 	}
 	
+	// TODO
+	// Logs segment information
+	public static void logSegment(Segment segmentToLog){
+		
+	}
+	
+	// Print Log Statistics
+	public static void logStats(){
+		receiverLog.printf("Amount of Data Received: %d Bytes\n", amountDataReceived);
+		receiverLog.printf("Total segments received: %d\n", numSegmentsReceived);
+		receiverLog.printf("Data segments received: %d\n", numDataSegmentsReceived);
+		receiverLog.printf("Data Segments with bit errors: %d\n", numDataSegmentsWBitErrors);
+		receiverLog.printf("Duplicate data segments received: %d\n", numDupDataSegments);
+		receiverLog.printf("Duplicate Acks sent: %d\n", numDupAcksSent);
+	}
 
 }
