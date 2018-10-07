@@ -3,22 +3,11 @@ import java.net.*;
 
 public class Sender {
 	
-	// PLD Module Arguments
-	static double pDrop;
-	static double pDuplicate;
-	static double pCorrupt;
-	static double pOrder;
-	static int maxOrder;
-	static double pDelay;
-	static int maxDelay;
-	static int seed;
-	
-	// File Arguments
-	static String fileName_s;
-	static File fSender;
-	static long fileLength_s;
-	static byte[] fileData_s;
-	static FileInputStream fileIS;
+	static DatagramSocket senderSocket;
+	static DatagramPacket request;
+	static byte[] recvBuffer;
+	static int senderSequenceNumber;
+	static int senderACKNumber;
 
 	public static void main(String[] args) throws Exception {
 	
@@ -33,27 +22,28 @@ public class Sender {
 		InetAddress receiver_host_ip = InetAddress.getByName(receiver_host_ipString);
 
 		int receiver_port = Integer.parseInt(args[1]);
-		fileName_s = args[2];
+		String fileName_s = args[2];
 		int MWS = Integer.parseInt(args[3]);
 		int MSS = Integer.parseInt(args[4]);
 		int gamma = Integer.parseInt(args[5]);
 		
 		// Set Arguments used by PLD Module based on inputs
-		pDrop = Double.parseDouble(args[6]);
-		pDuplicate = Double.parseDouble(args[7]);
-		pCorrupt = Double.parseDouble(args[8]);
-		pOrder = Double.parseDouble(args[9]);
-		maxOrder = Integer.parseInt(args[10]);
-		pDelay = Double.parseDouble(args[11]);
-		maxDelay = Integer.parseInt(args[12]);
-		seed = Integer.parseInt(args[13]);
+		double pDrop = Double.parseDouble(args[6]);
+		double pDuplicate = Double.parseDouble(args[7]);
+		double pCorrupt = Double.parseDouble(args[8]);
+		double pOrder = Double.parseDouble(args[9]);
+		int maxOrder = Integer.parseInt(args[10]);
+		double pDelay = Double.parseDouble(args[11]);
+		int maxDelay = Integer.parseInt(args[12]);
+		int seed = Integer.parseInt(args[13]);
 		
 		// Convert file into byte array
-		pdfToByteArray();
+		byte[] fileData_s = pdfToByteArray(fileName_s);
 		
 		// TODO
 		// Initialize Connection with Receiver
-		DatagramSocket senderSocket = new DatagramSocket();
+		senderSocket = new DatagramSocket();
+		establishConnection(receiver_host_ip, receiver_port);
 		
 		
 		
@@ -66,17 +56,59 @@ public class Sender {
 	}
 	
 	// Convert file into byte array
-	public static void pdfToByteArray() throws Exception{
-		fSender = new File(fileName_s);
-		fileLength_s = fSender.length();
-		fileData_s = new byte[(int)fileLength_s];
-		fileIS = new FileInputStream(fSender);
-		fileIS.read(fileData_s);
+	public static byte[] pdfToByteArray(String fName) throws Exception{
+		File fSender = new File(fName);
+		long fileLength_s = fSender.length();
+		byte[] fileData = new byte[(int)fileLength_s];
+		FileInputStream fileIS = new FileInputStream(fSender);
+		fileIS.read(fileData);
 		fileIS.close();
+		return fileData;
 	}
 	
+	// Establish connection with receiver
+	public static void establishConnection(InetAddress receiverIP, int receiverPort) throws Exception{
+		
+		// Set initial sequence and ack numbers
+		senderSequenceNumber = 0;
+		senderACKNumber = 0;
+		// Send first SYN
+		Segment syn1 = new Segment(null, senderSequenceNumber, senderACKNumber, false, true, false);
+		syn1.createDatagramPacket(receiverIP, receiverPort);
+		senderSocket.send(syn1.segment);
+		
+		// Receive first ACK
+		request = new DatagramPacket(new byte[1024], 1024);
+		senderSocket.receive(request);
+		recvBuffer = request.getData();
+		// Process Segment
+		Segment received = new Segment(recvBuffer);
+		if (! (received.isSYN && received.isACK && (received.ACKNumber == senderSequenceNumber + 1))){
+			throw new ConnectionException();
+		}
+		// Adjust Sequence and ACK Numbers
+		senderSequenceNumber++;
+		senderACKNumber = received.sequenceNumber + 1;
+		
+		// Send Final ACK of Connection Establishment
+		Segment ack = new Segment(null, senderSequenceNumber, senderACKNumber, true, false, false);
+		ack.createDatagramPacket(receiverIP, receiverPort);
+		senderSocket.send(ack.segment);
+	}
+
 	public void PLDmodule(DatagramPacket segment){
 		
 	}
 
+}
+
+class ConnectionException extends Exception{
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 1L;
+
+	public ConnectionException(){
+		super("Connection Error");
+	}
 }
