@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.util.*;
 
 public class Sender {
 	
@@ -27,7 +28,11 @@ public class Sender {
 	static int numFastRetrans;
 	static int numDupAcks;
 	
+	// Set of Segments
+	HashMap<Integer, Long> segmentSentTimeHM;
 	
+	// Begin Time
+	static long startTime;
 
 	public static void main(String[] args) throws Exception {
 	
@@ -69,13 +74,33 @@ public class Sender {
 		
 		// Initialize Connection with Receiver
 		senderSocket = new DatagramSocket();
+		startTime = System.currentTimeMillis();
 		establishConnection(receiver_host_ip, receiver_port, fileLengthBytes);
 		
 		// TODO
 		// Initialize Receiver Thread
+		// Maintains numTimeoutRetrans, numFastRetrans, numDupAcks
+		// Process Packet
+		// Log
+		// Update Sender window left edge
+		// Update RTT
 		
 		// TODO
 		// Initialize Sender Thread
+		// Maintains numSegmentsTrans
+		// Create Packet
+		// Pass packets through PLD Module
+		// Create datagram
+		// Log
+		// Send
+		// Maintain Segment Sent Time HashMap make value -1 if retransmitted 
+		
+		// TODO
+		// Implement delayed sending thread
+		// create datagram
+		// Log
+		// Send
+		// Maintain Segment Sent Time HashMap make value -1 if retransmitted 
 		
 		// TODO
 		// Terminate Connection with Receiver
@@ -103,9 +128,11 @@ public class Sender {
 		// Set initial sequence and ack numbers
 		senderSequenceNumber = 0;
 		senderACKNumber = 0;
+		
 		// Send first SYN
 		Segment syn1 = new Segment(fileLengthB, senderSequenceNumber, senderACKNumber, false, true, false);
 		syn1.createDatagramPacket(receiverIP, receiverPort);
+		logSegment(syn1);
 		senderSocket.send(syn1.segment);
 		
 		// Receive first ACK
@@ -127,13 +154,19 @@ public class Sender {
 		senderSocket.send(ack.segment);
 	}
 
-	public void PLDmodule(DatagramPacket segment){
+	public void PLDmodule(Segment segmentToPLD){
+		// Maintains numSegmentsHandledPLD, numSegmentsDroppedPLD, numSegmentsCorruptedPLD, numSegmentsReOrderedPLD,
+		// numSegmentsDuplicated, numSegmentsDelayedPLD
+		// Sets Event variables
 		
 	}
 	
 	// TODO
 	// Logs segment information
 	public static void logSegment(Segment segmentToLog){
+		// Call Set Event
+		// Call Set Type of Packet
+		// Call Set Send Time and subtract from start time and divide by 1000 logging the double value
 		
 	}
 	

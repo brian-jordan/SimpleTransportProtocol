@@ -29,6 +29,9 @@ public class Receiver {
 	static int numDataSegmentsWBitErrors;
 	static int numDupDataSegments;
 	static int numDupAcksSent;
+	
+	// Begin Time
+	static long startTime;
 
 	public static void main(String[] args) throws Exception{
 		// Check for correct number of arguments
@@ -47,6 +50,7 @@ public class Receiver {
 		
 		// Initialize connection with Sender
 		receiverSocket = new DatagramSocket(receiver_port);
+		startTime = System.currentTimeMillis();
 		establishConnection();
 		
 		// Initialize Received Data Array
@@ -54,6 +58,13 @@ public class Receiver {
 		
 		// TODO
 		// Begin Accepting Data Segments
+		// Maintains amountDataReceived, numSegmentsReceived, numDataSegmentsReceived, numDataSegmentsWBitErrors, numDupDataSegments, numDupAcksSent
+		// Process Packet
+		// Log
+		// Create ACK Packet
+		// create datagram
+		// Log
+		// Send ACK Packet
 		
 		// TODO
 		// Terminate Connection with Sender
@@ -122,7 +133,9 @@ public class Receiver {
 	// TODO
 	// Logs segment information
 	public static void logSegment(Segment segmentToLog){
-		
+		// Call Set Event
+		// Call Set Type of Packet
+		// Call Set Send Time and subtract from start time and divide by 1000 logging the double value
 	}
 	
 	// Print Log Statistics
