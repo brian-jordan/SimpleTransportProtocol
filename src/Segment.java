@@ -1,5 +1,7 @@
 import java.net.*;
 import java.util.*;
+import java.security.*;
+import java.nio.*;
 
 public class Segment {
 	
@@ -7,10 +9,12 @@ public class Segment {
 	final int ACKbit = 1;
 	final int SYNbit = 2;
 	final int FINbit = 4;
-	final int headerLength = 20;
+	final int headerLength = 28;
 	
 	// Variables
 	String header = "";
+	byte[] checksum;
+	byte[] checksumComp;
 	int payloadLength;
 	int segmentLength;
 	byte[] segmentPayloadData;
@@ -38,12 +42,8 @@ public class Segment {
 	boolean DA;
 	boolean RXT;
 	
-	// TODO Might not need this parameter
-	// Number of Times Acked
-	int Acks;
-	
 	// Constructor for Segments to be sent
-	public Segment(byte[] data, int seqNum, int ACKNum, boolean ACK, boolean SYN, boolean FIN){
+	public Segment(byte[] data, int seqNum, int ACKNum, boolean ACK, boolean SYN, boolean FIN) throws Exception{
 		// Process packet information
 		this.segmentPayloadData = data;
 		if (this.segmentPayloadData == null){
@@ -64,31 +64,33 @@ public class Segment {
 		}
 		this.sequenceNumber = seqNum;
 		this.ACKNumber = ACKNum;
-		
-		// TODO
-		// Create Checksum and append to header
-		
-		// Create Header
-		this.header = this.header + this.sequenceNumber + "a" + this.ACKNumber + "f" + this.flags;
-		this.segmentHeader = this.header.getBytes();
+
+		// Create Checksum of Data
+		this.checksum = createChecksum(this.segmentPayloadData);
+
+		// Create Header Byte Array
+		ByteBuffer bb = ByteBuffer.allocate(4);
+		this.segmentHeader = new byte[this.headerLength];
+		bb.putInt(this.sequenceNumber);
+		System.arraycopy(bb.array(), 0, this.segmentHeader, 0, 4);
+		bb.clear();
+		bb.putInt(this.ACKNumber);
+		System.arraycopy(bb.array(), 0, this.segmentHeader, 4, 4);
+		bb.clear();
+		bb.putInt(this.flags);
+		System.arraycopy(bb.array(), 0, this.segmentHeader, 8, 4);
+		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, 16);
 		
 		// Create Segment
 		this.segmentLength = headerLength + this.payloadLength;
 		this.segmentBytes = new byte[this.segmentLength];
-		int index = 0;
-		for (int i = 0; i < this.segmentHeader.length; i++){
-			this.segmentBytes[index] = this.segmentHeader[i];
-			index++;
-		}
+		System.arraycopy(this.segmentHeader, 0, this.segmentBytes, 0, this.headerLength);
 		if (this.segmentPayloadData != null){
-			for(int i = 0; i < this.segmentPayloadData.length; i++){
-				this.segmentBytes[index] = this.segmentPayloadData[i];
-				index++;
-			}
+			System.arraycopy(this.segmentPayloadData, 0, this.segmentBytes, this.headerLength, this.payloadLength);
 		}
 		
 		// Set PLD values to false
-		this.snd = false;
+		this.snd = true;
 		this.rcv = false;
 		this.drop = false;
 		this.corr = false;
@@ -98,25 +100,21 @@ public class Segment {
 		this.DA = false;
 		this.RXT = false;
 		
-		// Set number of times ackd to zero
-		this.Acks = 0;
-		
-		// TODO
-		// Set Event
-		
-		// TODO
-		// Set Type of Packet
+		// Set Packet Type
+		setTypeOfPacket();
 	}
 	
 	// Constructor for Segments received for processing 
-	public Segment(byte[] incomingSegmentData){
-		// Process Header
+	public Segment(byte[] incomingSegmentData) throws Exception{
 		this.segmentBytes = incomingSegmentData;
-		this.segmentHeader = Arrays.copyOfRange(this.segmentBytes, 0, headerLength);
-		this.header = new String(this.segmentHeader);
-		this.sequenceNumber = Integer.parseInt(this.header.substring(0, this.header.indexOf('a')));
-		this.ACKNumber = Integer.parseInt(this.header.substring(this.header.indexOf('a'), this.header.indexOf('f')));
-		this.flags = Integer.parseInt(this.header.substring(this.header.indexOf('f'), this.header.length()));
+		// Process Header
+		this.segmentHeader = Arrays.copyOfRange(this.segmentBytes, 0, headerLength - 1);
+		ByteBuffer bb = ByteBuffer.allocate(12);
+		bb.put(this.segmentHeader, 0, 12);
+		this.sequenceNumber = bb.getInt();
+		this.ACKNumber = bb.getInt();
+		this.flags = bb.getInt();
+		this.checksum = Arrays.copyOfRange(this.segmentHeader, 12, headerLength - 1);
 		if ((this.flags & ACKbit) != 0){
 			this.isACK = true;
 		}
@@ -131,8 +129,8 @@ public class Segment {
 		else this.isFIN = false;
 		
 		// Process Data
-		if (this.segmentBytes.length > this.segmentHeader.length){
-			this.segmentPayloadData = Arrays.copyOfRange(this.segmentBytes, headerLength, this.segmentBytes.length);
+		if (this.segmentBytes.length > this.segmentHeader.length && (this.isSYN == false)){
+			this.segmentPayloadData = Arrays.copyOfRange(this.segmentBytes, headerLength, this.segmentBytes.length - 1);
 			this.payloadLength = this.segmentPayloadData.length;
 		}
 		else {
@@ -140,14 +138,26 @@ public class Segment {
 			this.payloadLength = 0;
 		}
 		
-		// TODO
-		// Process Checksum
+
+		// Process Checksum (sets corr)
+		this.checksumComp = createChecksum(this.segmentPayloadData);
+		processChecksum();
+
+		// Set Events
+		this.snd = false;
+		this.rcv = true;
+		this.drop = false;
+		this.dup = false;
+		this.rord = false;
+		this.dely = false;
+		this.DA = false;
+		this.RXT = false;
 		
-		// TODO
-		// Set Event
+		// Set Event String
+		setEvent();
 		
-		// TODO
 		// Set Type of Packet
+		setTypeOfPacket();
 		
 	}
 	
@@ -194,6 +204,7 @@ public class Segment {
 		this.event = eventSB.toString();
 	}
 	
+	// Sets Packet Type
 	public void setTypeOfPacket(){
 		StringBuilder typeOfPacketSB = new StringBuilder();
 		if (this.isSYN == true){
@@ -210,11 +221,22 @@ public class Segment {
 		}
 		this.typeOfPacket = typeOfPacketSB.toString();
 	}
-	
-	// TODO 
+
 	// Implement Checksum creation
+	public byte[] createChecksum(byte[] data) throws Exception{
+		MessageDigest checksumDigest = MessageDigest.getInstance("MD5");
+		if (data != null){
+			checksumDigest.update(data);
+			return checksumDigest.digest();
+		}
+		else {
+			return new byte[16];
+		}
+	}
 	
-	// TODO
-	// Implement Checksum processing 
+	// Process Checksum and edit state data
+	public void processChecksum() throws Exception{
+		this.corr = ! MessageDigest.isEqual(this.checksum, this.checksumComp);
+	}
 
 }

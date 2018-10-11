@@ -90,6 +90,7 @@ public class Sender {
 		// Maintains numSegmentsTrans
 		// Create Packet
 		// Pass packets through PLD Module
+		// Set Event Type
 		// Create datagram
 		// Log
 		// Send
