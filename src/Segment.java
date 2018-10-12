@@ -26,7 +26,7 @@ public class Segment {
 	boolean isFIN;
 	int sequenceNumber;
 	int ACKNumber;
-	long sendTime;
+	long packetTime;
 	DatagramPacket segment;
 	
 	// Events
@@ -46,7 +46,7 @@ public class Segment {
 	public Segment(byte[] data, int seqNum, int ACKNum, boolean ACK, boolean SYN, boolean FIN) throws Exception{
 		// Process packet information
 		this.segmentPayloadData = data;
-		if (this.segmentPayloadData == null){
+		if (this.segmentPayloadData == null || (SYN == true)){
 			this.payloadLength = 0;
 		}
 		else this.payloadLength = this.segmentPayloadData.length;
@@ -82,11 +82,14 @@ public class Segment {
 		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, 16);
 		
 		// Create Segment
-		this.segmentLength = headerLength + this.payloadLength;
+		if (SYN == true && ACK == false){
+			this.segmentLength = headerLength + this.segmentPayloadData.length;
+		}
+		else this.segmentLength = headerLength + this.payloadLength;
 		this.segmentBytes = new byte[this.segmentLength];
 		System.arraycopy(this.segmentHeader, 0, this.segmentBytes, 0, this.headerLength);
 		if (this.segmentPayloadData != null){
-			System.arraycopy(this.segmentPayloadData, 0, this.segmentBytes, this.headerLength, this.payloadLength);
+			System.arraycopy(this.segmentPayloadData, 0, this.segmentBytes, this.headerLength, this.segmentPayloadData.length);
 		}
 		
 		// Set PLD values to false
@@ -99,9 +102,6 @@ public class Segment {
 		this.dely = false;
 		this.DA = false;
 		this.RXT = false;
-		
-		// Set Packet Type
-		setTypeOfPacket();
 	}
 	
 	// Constructor for Segments received for processing 
@@ -129,15 +129,18 @@ public class Segment {
 		else this.isFIN = false;
 		
 		// Process Data
-		if (this.segmentBytes.length > this.segmentHeader.length && (this.isSYN == false)){
+		if (this.segmentBytes.length > headerLength){
 			this.segmentPayloadData = Arrays.copyOfRange(this.segmentBytes, headerLength, this.segmentBytes.length - 1);
-			this.payloadLength = this.segmentPayloadData.length;
 		}
-		else {
-			this.segmentPayloadData = null;
+		else this.segmentPayloadData = null;
+		if (this.isSYN){
 			this.payloadLength = 0;
 		}
+		else {
+			this.payloadLength = this.segmentPayloadData.length;
+		}
 		
+		this.segmentLength = headerLength + this.payloadLength;
 
 		// Process Checksum (sets corr)
 		this.checksumComp = createChecksum(this.segmentPayloadData);
@@ -152,21 +155,14 @@ public class Segment {
 		this.dely = false;
 		this.DA = false;
 		this.RXT = false;
-		
-		// Set Event String
-		setEvent();
-		
-		// Set Type of Packet
-		setTypeOfPacket();
-		
 	}
 	
 	public void createDatagramPacket(InetAddress destinationIP, int port){
 		 this.segment =  new DatagramPacket(this.segmentBytes, this.segmentBytes.length, destinationIP, port);
 	}
 	
-	public void setSendTime(){
-		this.sendTime = System.currentTimeMillis();
+	public void setTime(){
+		this.packetTime = System.currentTimeMillis();
 	}
 	
 	public void setEvent(){
@@ -225,7 +221,7 @@ public class Segment {
 	// Implement Checksum creation
 	public byte[] createChecksum(byte[] data) throws Exception{
 		MessageDigest checksumDigest = MessageDigest.getInstance("MD5");
-		if (data != null){
+		if (data != null && (this.isSYN == false)){
 			checksumDigest.update(data);
 			return checksumDigest.digest();
 		}

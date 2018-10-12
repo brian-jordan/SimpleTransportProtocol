@@ -1,7 +1,6 @@
 import java.io.*;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
+import java.net.*;
+import java.nio.*;
 
 public class Receiver {
 	
@@ -88,6 +87,19 @@ public class Receiver {
 	// Establish connection with sender
 	public static void establishConnection() throws Exception{
 		
+		// TODO
+		// Begin Accepting Data Segments
+		// Maintains amountDataReceived, numSegmentsReceived, numDataSegmentsReceived, numDataSegmentsWBitErrors, numDupDataSegments, numDupAcksSent
+		// Process Packet
+		// Log
+		// Create ACK Packet
+		// create datagram
+		// Log
+		// Send ACK Packet
+		
+		// Set initial value of numSegmentsReceived
+		numSegmentsReceived = 0;
+		
 		// Set initial sequence and ack numbers
 		receiverSequenceNumber = 0;
 		receiverACKNumber = 0;
@@ -96,17 +108,21 @@ public class Receiver {
 		incomingSegment = new DatagramPacket(new byte[1024], 1024);
 		receiverSocket.receive(incomingSegment);
 		recvBuffer = incomingSegment.getData();
+		
 		// Get Sender Information
 		sender_host_ip = incomingSegment.getAddress();
 		sender_port = incomingSegment.getPort();
+		
 		// Process Segment
 		received = new Segment(recvBuffer);
+		logSegment(received);
 		if (! received.isSYN){
 			throw new ConnectionException();
 		}
-		byte[] fileLengthBytes_r = received.segmentPayloadData;
-		String fileLengthString_r = new String(fileLengthBytes_r);
-		fileLength_r = Integer.parseInt(fileLengthString_r);
+		ByteBuffer bb = ByteBuffer.allocate(4);
+		bb.put(received.segmentPayloadData, 0, 4);
+		fileLength_r = bb.getInt();
+		numSegmentsReceived++;
 		
 		// Adjust Sequence and ACK Numbers
 		receiverACKNumber = received.sequenceNumber + 1;
@@ -114,28 +130,34 @@ public class Receiver {
 		// Send SYN + ACK
 		Segment synAck = new Segment(null, receiverSequenceNumber, receiverACKNumber, true, true, false);
 		synAck.createDatagramPacket(sender_host_ip, sender_port);
+		logSegment(synAck);
 		receiverSocket.send(synAck.segment);
 		
 		// Receive Final ACK
 		incomingSegment = new DatagramPacket(new byte[1024], 1024);
 		receiverSocket.receive(incomingSegment);
 		recvBuffer = incomingSegment.getData();
+		
 		// Process Segment
 		received = new Segment(recvBuffer);
+		logSegment(received);
 		if (! (received.isACK && (received.ACKNumber == receiverSequenceNumber + 1))){
 			throw new ConnectionException();
 		}
+		numSegmentsReceived++;
+		
 		// Adjust Sequence and ACK Numbers
 		receiverSequenceNumber++;
 		receiverACKNumber = received.sequenceNumber + 1;
 	}
-	
-	// TODO
+
 	// Logs segment information
 	public static void logSegment(Segment segmentToLog){
 		// Call Set Event
-		// Call Set Type of Packet
-		// Call Set Send Time and subtract from start time and divide by 1000 logging the double value
+		segmentToLog.setEvent();
+		segmentToLog.setTypeOfPacket();
+		segmentToLog.setTime();
+		receiverLog.printf("%s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
 	}
 	
 	// Print Log Statistics

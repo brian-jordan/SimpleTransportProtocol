@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.nio.*;
 
 public class Sender {
 	
@@ -29,10 +30,18 @@ public class Sender {
 	static int numDupAcks;
 	
 	// Set of Segments
-	HashMap<Integer, Long> segmentSentTimeHM;
+	static HashMap<Integer, Long> segmentSentTimeHM;
 	
 	// Begin Time
 	static long startTime;
+	
+	// Timeout Variables
+	static long timeout;
+	static long estimatedRTT;
+	static long devRTT;
+	
+	// Control Variables
+	static int expectedACK;
 
 	public static void main(String[] args) throws Exception {
 	
@@ -64,9 +73,15 @@ public class Sender {
 		
 		// Convert file into byte array
 		byte[] fileData_s = pdfToByteArray(fileName_s);
+		
+		// Initialize HashMap for segment send times
+		segmentSentTimeHM = new HashMap<>();
+		
+		// Find length of file to send during initialization
 		fileLength = fileData_s.length;
-		String fileLengthString = "" + fileLength;
-		byte[] fileLengthBytes = fileLengthString.getBytes();
+		ByteBuffer bb = ByteBuffer.allocate(4);
+		bb.putInt(fileLength);
+		byte[] fileLengthBytes = bb.array();
 		
 		// Initialize Sender Log File
 		senderLog = new PrintWriter("Sender_log.txt");
@@ -125,34 +140,65 @@ public class Sender {
 	
 	// Establish connection with receiver
 	public static void establishConnection(InetAddress receiverIP, int receiverPort, byte[] fileLengthB) throws Exception{
+		// Maintains numSegmentsTrans
+		// Create Packet
+		// Pass packets through PLD Module
+		// Set Event Type
+		// Create datagram
+		// Log
+		// Send
+		// Maintain Segment Sent Time HashMap make value -1 if retransmitted
+		
+		// Set initial time values
+		estimatedRTT = 500;
+		devRTT = 250;
+		timeout = estimatedRTT + (4 * devRTT);
+		
+		// Set initial value of numSegmentsTrans
+		numSegmentsTrans = 0;
 		
 		// Set initial sequence and ack numbers
 		senderSequenceNumber = 0;
 		senderACKNumber = 0;
+		expectedACK = senderSequenceNumber + 1;
+		
+		// create 
 		
 		// Send first SYN
 		Segment syn1 = new Segment(fileLengthB, senderSequenceNumber, senderACKNumber, false, true, false);
 		syn1.createDatagramPacket(receiverIP, receiverPort);
 		logSegment(syn1);
 		senderSocket.send(syn1.segment);
+		segmentSentTimeHM.put(expectedACK, syn1.packetTime);
+		numSegmentsTrans++;
 		
 		// Receive first ACK
 		incomingSegment = new DatagramPacket(new byte[1024], 1024);
 		senderSocket.receive(incomingSegment);
 		recvBuffer = incomingSegment.getData();
+		
 		// Process Segment
 		received = new Segment(recvBuffer);
-		if (! (received.isSYN && received.isACK && (received.ACKNumber == senderSequenceNumber + 1))){
+		if (! (received.isSYN && received.isACK && (received.ACKNumber == expectedACK))){
 			throw new ConnectionException();
 		}
+		logSegment(received);
+		if (segmentSentTimeHM.get(received.ACKNumber) != -1){
+			adjustRTT(received.packetTime - segmentSentTimeHM.get(received.ACKNumber));
+		}
+		
 		// Adjust Sequence and ACK Numbers
-		senderSequenceNumber++;
+		senderSequenceNumber = received.ACKNumber;
 		senderACKNumber = received.sequenceNumber + 1;
+		expectedACK = senderSequenceNumber + 1;
 		
 		// Send Final ACK of Connection Establishment
 		Segment ack = new Segment(null, senderSequenceNumber, senderACKNumber, true, false, false);
 		ack.createDatagramPacket(receiverIP, receiverPort);
+		logSegment(ack);
 		senderSocket.send(ack.segment);
+		segmentSentTimeHM.put(expectedACK, ack.packetTime);
+		numSegmentsTrans++;
 	}
 
 	public void PLDmodule(Segment segmentToPLD){
@@ -162,13 +208,13 @@ public class Sender {
 		
 	}
 	
-	// TODO
 	// Logs segment information
 	public static void logSegment(Segment segmentToLog){
 		// Call Set Event
-		// Call Set Type of Packet
-		// Call Set Send Time and subtract from start time and divide by 1000 logging the double value
-		
+		segmentToLog.setEvent();
+		segmentToLog.setTypeOfPacket();
+		segmentToLog.setTime();
+		senderLog.printf("%s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
 	}
 	
 	// Print Log Statistics
@@ -185,13 +231,18 @@ public class Sender {
 		senderLog.printf("Number of Fast Retransmissions: %d\n", numFastRetrans);
 		senderLog.printf("Number of Duplicate Acknowledgements received: %d\n", numDupAcks);
 	}
+	
+	// Maintain RTT value
+	public static void adjustRTT(long sampleRTT){
+		estimatedRTT = (long)((0.875 * estimatedRTT) + (0.125 * sampleRTT));
+		devRTT = (long)((0.75 * devRTT) + (0.25 * Math.abs(sampleRTT - estimatedRTT)));
+		timeout = estimatedRTT + (4 * devRTT);
+	}
 
 }
 
 class ConnectionException extends Exception{
-	/**
-	 * 
-	 */
+
 	private static final long serialVersionUID = 1L;
 
 	public ConnectionException(){
