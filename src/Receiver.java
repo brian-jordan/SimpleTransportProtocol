@@ -86,16 +86,7 @@ public class Receiver {
 	
 	// Establish connection with sender
 	public static void establishConnection() throws Exception{
-		
-		// TODO
-		// Begin Accepting Data Segments
-		// Maintains amountDataReceived, numSegmentsReceived, numDataSegmentsReceived, numDataSegmentsWBitErrors, numDupDataSegments, numDupAcksSent
-		// Process Packet
-		// Log
-		// Create ACK Packet
-		// create datagram
-		// Log
-		// Send ACK Packet
+		// Good to Go
 		
 		// Set initial value of numSegmentsReceived
 		numSegmentsReceived = 0;
@@ -119,8 +110,7 @@ public class Receiver {
 		if (! received.isSYN){
 			throw new ConnectionException();
 		}
-		ByteBuffer bb = ByteBuffer.allocate(4);
-		bb.put(received.segmentPayloadData, 0, 4);
+		ByteBuffer bb = ByteBuffer.wrap(received.segmentPayloadData);
 		fileLength_r = bb.getInt();
 		numSegmentsReceived++;
 		
@@ -148,7 +138,6 @@ public class Receiver {
 		
 		// Adjust Sequence and ACK Numbers
 		receiverSequenceNumber++;
-		receiverACKNumber = received.sequenceNumber + 1;
 	}
 
 	// Logs segment information

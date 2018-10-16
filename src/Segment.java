@@ -10,6 +10,7 @@ public class Segment {
 	final int SYNbit = 2;
 	final int FINbit = 4;
 	final int headerLength = 28;
+	final int checksumLength = 16;
 	
 	// Variables
 	String header = "";
@@ -26,6 +27,7 @@ public class Segment {
 	boolean isFIN;
 	int sequenceNumber;
 	int ACKNumber;
+	int expectedACK;
 	long packetTime;
 	DatagramPacket segment;
 	
@@ -70,7 +72,7 @@ public class Segment {
 
 		// Create Header Byte Array
 		ByteBuffer bb = ByteBuffer.allocate(4);
-		this.segmentHeader = new byte[this.headerLength];
+		this.segmentHeader = new byte[headerLength];
 		bb.putInt(this.sequenceNumber);
 		System.arraycopy(bb.array(), 0, this.segmentHeader, 0, 4);
 		bb.clear();
@@ -82,7 +84,7 @@ public class Segment {
 		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, 16);
 		
 		// Create Segment
-		if (SYN == true && ACK == false){
+		if (this.isSYN == true && this.isACK == false){
 			this.segmentLength = headerLength + this.segmentPayloadData.length;
 		}
 		else this.segmentLength = headerLength + this.payloadLength;
@@ -91,6 +93,11 @@ public class Segment {
 		if (this.segmentPayloadData != null){
 			System.arraycopy(this.segmentPayloadData, 0, this.segmentBytes, this.headerLength, this.segmentPayloadData.length);
 		}
+
+		if (this.isSYN == true || this.isACK == true || this.isFIN == true){
+			this.expectedACK = this.sequenceNumber + 1;
+		}
+		else this.expectedACK = this.sequenceNumber + this.payloadLength;
 		
 		// Set PLD values to false
 		this.snd = true;
@@ -107,14 +114,16 @@ public class Segment {
 	// Constructor for Segments received for processing 
 	public Segment(byte[] incomingSegmentData) throws Exception{
 		this.segmentBytes = incomingSegmentData;
+		this.segmentLength = this.segmentBytes.length;
 		// Process Header
-		this.segmentHeader = Arrays.copyOfRange(this.segmentBytes, 0, headerLength - 1);
-		ByteBuffer bb = ByteBuffer.allocate(12);
-		bb.put(this.segmentHeader, 0, 12);
+		this.segmentHeader = new byte[headerLength];
+		System.arraycopy(this.segmentBytes, 0, this.segmentHeader, 0, headerLength);
+		ByteBuffer bb = ByteBuffer.wrap(this.segmentHeader);
 		this.sequenceNumber = bb.getInt();
 		this.ACKNumber = bb.getInt();
 		this.flags = bb.getInt();
-		this.checksum = Arrays.copyOfRange(this.segmentHeader, 12, headerLength - 1);
+		this.checksum = new byte[checksumLength];
+		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, checksumLength);
 		if ((this.flags & ACKbit) != 0){
 			this.isACK = true;
 		}
@@ -129,8 +138,9 @@ public class Segment {
 		else this.isFIN = false;
 		
 		// Process Data
-		if (this.segmentBytes.length > headerLength){
-			this.segmentPayloadData = Arrays.copyOfRange(this.segmentBytes, headerLength, this.segmentBytes.length - 1);
+		if (this.segmentLength > headerLength){
+			this.segmentPayloadData = new byte[this.segmentLength - headerLength];
+			System.arraycopy(this.segmentBytes, headerLength, this.segmentPayloadData, 0, (this.segmentLength - headerLength));
 		}
 		else this.segmentPayloadData = null;
 		if (this.isSYN){
