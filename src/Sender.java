@@ -121,16 +121,92 @@ public class Sender {
 		nextSendPointer = 0;
 		establishConnection(receiver_host_ip, receiver_port, fileLengthBytes);
 		
-		// TODO
 		// Initialize Receiver Thread
+		Thread receiverThread = new Thread(){
+			public void run(){
+				while (receivingACKs == true){
+					// Receive first ACK
+					try {
+						received = receiveSegment();
+						if (multiACKcnt == 0){
+							leftEdgePointer = received.ACKNumber - 1;
+							rightEdgePointer = leftEdgePointer + MWS;
+						}
+						else if (multiACKcnt == 3){
+							byte[] resendDataSegment;
+							if ((fileLength - leftEdgePointer) < MSS){
+								resendDataSegment = new byte[fileLength - leftEdgePointer];
+							}
+							else resendDataSegment = new byte[MSS];
+							System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
+							nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							numFastRetrans++;
+							sendSegment(nextPacket);
+						
+							multiACKcnt = 0;
+						}
+						if (received.ACKNumber - 1 == fileLength){
+							receivingACKs = false;
+							sendingData = false;
+							senderSequenceNumber = received.ACKNumber;
+						}
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+				}
+			}
+		};
+		receiverThread.run();
 		// Maintains numTimeoutRetrans, numFastRetrans, numDupAcks
 		// Process Packet
 		// Log
 		// Update Sender window left edge
 		// Update RTT
 		
-		// TODO
 		// Initialize Sender Thread
+		Thread senderThread = new Thread(){
+			public void run(){
+				while (sendingData == true){
+					while (((nextSendPointer + MSS - 1) < rightEdgePointer) && ((nextSendPointer + MSS - 1) < fileLength)){
+						byte[] nextDataSegment = new byte[MSS];
+						System.arraycopy(fileData_s, nextSendPointer, nextDataSegment, 0, MSS);
+						try {
+							nextPacket = new Segment(nextDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
+							sendSegment(nextPacket);
+							nextSendPointer = nextSendPointer + nextDataSegment.length;
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}
+					if ((fileLength - nextSendPointer) < MSS && (nextSendPointer < fileLength));
+						byte[] lastDataSegment = new byte[fileLength - nextSendPointer];
+						System.arraycopy(fileData_s, nextSendPointer, lastDataSegment, 0, fileLength - nextSendPointer);
+					try {
+						nextPacket = new Segment(lastDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
+						sendSegment(nextPacket);
+						nextSendPointer = nextSendPointer + lastDataSegment.length;
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+					if ((System.currentTimeMillis() - timeoutTimer) >= timeout){
+						byte[] resendDataSegment;
+						if ((fileLength - leftEdgePointer) < MSS){
+							resendDataSegment = new byte[fileLength - leftEdgePointer];
+						}
+						else resendDataSegment = new byte[MSS];
+						System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
+						try {
+							nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							numTimeoutRetrans++;
+							sendSegment(nextPacket);
+						} catch (Exception e) {
+							e.printStackTrace();
+						}
+					}
+				}
+			}
+		};
+		senderThread.run();
 		// Maintains numSegmentsTrans
 		// Create Packet
 		// Pass packets through PLD Module
@@ -147,12 +223,14 @@ public class Sender {
 		// Send
 		// Maintain Segment Sent Time HashMap make value -1 if retransmitted 
 		
-		// TODO
 		// Terminate Connection with Receiver
+		terminateConnection();
+
 		
 		// Print Log Statistics and Close Log
 		logStats();
 		senderLog.close();
+		senderSocket.close();
 		
 	}
 	
@@ -242,6 +320,7 @@ public class Sender {
 	
 	// Print Log Statistics
 	public static void logStats(){
+		senderLog.println("=========================================");
 		senderLog.printf("Size of the file: %d Bytes\n", fileLength);
 		senderLog.printf("Segments transmitted: %d\n", numSegmentsTrans);
 		senderLog.printf("Number of Segments handled by PLD: %d\n", numSegmentsHandledPLD);
@@ -253,6 +332,7 @@ public class Sender {
 		senderLog.printf("Number of Retransmissions due to timeout: %d\n", numTimeoutRetrans);
 		senderLog.printf("Number of Fast Retransmissions: %d\n", numFastRetrans);
 		senderLog.printf("Number of Duplicate Acknowledgements received: %d\n", numDupAcks);
+		senderLog.println("=========================================");
 	}
 	
 	// Maintain RTT value
@@ -292,7 +372,7 @@ public class Sender {
 		// Process Segment
 		received = new Segment(recvBuffer);
 		// Add if it is a duplicate ACK
-		if (justACKd == received.ACKNumber){
+		if (justACKd == received.ACKNumber || receivingACKs == false){
 			received.DA = true;
 			multiACKcnt++;
 			numDupAcks++;
@@ -302,95 +382,12 @@ public class Sender {
 			multiACKcnt = 0;
 		}
 		logSegment(received);
+		
+		// Assuming that we do not adjust RTT when duplicate acks are received
 		if ((segmentSentTimeHM.get(received.ACKNumber) != -1) && (received.DA != true)){
 			adjustRTT(received.packetTime - segmentSentTimeHM.get(received.ACKNumber));
 		}
 		return received;
-	}
-	
-	class SendThread extends Thread{
-		
-		//TODO look at sequence numbers and make sure they will be correct
-		// Pointer numbers are 1 less than sequence numbers and acks
-		
-		public void run(){
-			while (sendingData == true){
-				while (((nextSendPointer + MSS - 1) < rightEdgePointer) && ((nextSendPointer + MSS - 1) < fileLength)){
-					byte[] nextDataSegment = new byte[MSS];
-					System.arraycopy(fileData_s, nextSendPointer, nextDataSegment, 0, MSS);
-					try {
-						nextPacket = new Segment(nextDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
-						sendSegment(nextPacket);
-						nextSendPointer = nextSendPointer + nextDataSegment.length;
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-				}
-				if ((fileLength - nextSendPointer) < MSS && (nextSendPointer < fileLength));
-					byte[] lastDataSegment = new byte[fileLength - nextSendPointer];
-					System.arraycopy(fileData_s, nextSendPointer, lastDataSegment, 0, fileLength - nextSendPointer);
-				try {
-					nextPacket = new Segment(lastDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
-					sendSegment(nextPacket);
-					nextSendPointer = nextSendPointer + lastDataSegment.length;
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-				if ((System.currentTimeMillis() - timeoutTimer) >= timeout){
-					byte[] resendDataSegment;
-					if ((fileLength - leftEdgePointer) < MSS){
-						resendDataSegment = new byte[fileLength - leftEdgePointer];
-					}
-					else resendDataSegment = new byte[MSS];
-					System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
-					try {
-						nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
-						numTimeoutRetrans++;
-						sendSegment(nextPacket);
-					} catch (Exception e) {
-						e.printStackTrace();
-					}
-				}
-			}
-		}
-	}
-	
-	class ReceiveThread extends Thread{
-		
-		public void run(){
-			while (receivingACKs == true){
-				// Receive first ACK
-				try {
-					received = receiveSegment();
-					if (multiACKcnt == 0){
-						leftEdgePointer = received.ACKNumber - 1;
-						rightEdgePointer = leftEdgePointer + MWS;
-					}
-					else if (multiACKcnt == 3){
-						byte[] resendDataSegment;
-						if ((fileLength - leftEdgePointer) < MSS){
-							resendDataSegment = new byte[fileLength - leftEdgePointer];
-						}
-						else resendDataSegment = new byte[MSS];
-						System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
-						nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
-						numFastRetrans++;
-						sendSegment(nextPacket);
-						
-						multiACKcnt = 0;
-					}
-					if (received.ACKNumber - 1 == fileLength){
-						receivingACKs = false;
-						sendingData = false;
-						senderSequenceNumber = received.ACKNumber;
-					}
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-
-			}
-		}
-		
 	}
 }
 
