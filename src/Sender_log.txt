@@ -1,0 +1,65 @@
+<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>
+snd     0.000000     S     0     0     0
+rcv     0.000000     SA     0     0     1
+snd     0.000000     A     1     0     1
+snd     0.000000     D     1     150     1
+rcv     0.000000     A     1     0     151
+snd     0.000000     D     151     150     1
+snd     0.000000     D     301     150     1
+rcv/DA     0.000000     A     1     0     151
+snd     0.000000     D     451     150     1
+rcv/DA     0.000000     A     1     0     151
+snd     0.000000     D     601     150     1
+rcv/DA     0.000000     A     1     0     151
+snd/RXT     0.000000     D     151     150     1
+rcv     0.000000     A     1     0     751
+snd     0.000000     D     751     150     1
+rcv     0.000000     A     1     0     901
+snd     0.000000     D     901     150     1
+rcv     0.000000     A     1     0     1051
+snd     0.000000     D     1051     150     1
+rcv     0.000000     A     1     0     1201
+snd     0.000000     D     1201     150     1
+rcv     0.000000     A     1     0     1351
+snd     1.000000     D     1351     150     1
+rcv     1.000000     A     1     0     1501
+snd     1.000000     D     1501     150     1
+rcv     1.000000     A     1     0     1651
+snd     1.000000     D     1651     150     1
+rcv     1.000000     A     1     0     1801
+snd     1.000000     D     1801     150     1
+rcv     1.000000     A     1     0     1951
+snd     1.000000     D     1951     150     1
+rcv     1.000000     A     1     0     2101
+snd     1.000000     D     2101     150     1
+rcv     1.000000     A     1     0     2251
+snd     1.000000     D     2251     150     1
+rcv     1.000000     A     1     0     2401
+snd     1.000000     D     2401     150     1
+rcv     1.000000     A     1     0     2551
+snd     1.000000     D     2551     150     1
+rcv     1.000000     A     1     0     2701
+snd     2.000000     D     2701     150     1
+rcv     2.000000     A     1     0     2851
+snd     2.000000     D     2851     150     1
+snd     2.000000     D     3001     28     1
+rcv/DA     2.000000     A     1     0     2851
+snd/RXT     2.000000     D     2851     150     1
+rcv     2.000000     A     1     0     3029
+snd     2.000000     F     3029     0     1
+rcv     2.000000     A     1     0     3029
+rcv     2.000000     F     1     0     3029
+snd     2.000000     A     3029     0     2
+=========================================
+Size of the file: 3028 Bytes
+Segments transmitted: 27
+Number of Segments handled by PLD: 23
+Number of Segments Dropped: 2
+Number of Segments Corrupted: 0
+Number of Segments Re-ordered: 0
+Number of Segments Duplicated: 0
+Number of Segments Delayed: 0
+Number of Retransmissions due to timeout: 1
+Number of Fast Retransmissions: 1
+Number of Duplicate Acknowledgements received: 4
+=========================================

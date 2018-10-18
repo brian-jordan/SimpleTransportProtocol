@@ -1,5 +1,4 @@
 import java.net.*;
-import java.util.*;
 import java.security.*;
 import java.nio.*;
 
@@ -9,11 +8,10 @@ public class Segment {
 	final int ACKbit = 1;
 	final int SYNbit = 2;
 	final int FINbit = 4;
-	final int headerLength = 28;
+	final int headerLength = 32;
 	final int checksumLength = 16;
 	
 	// Variables
-	String header = "";
 	byte[] checksum;
 	byte[] checksumComp;
 	int payloadLength;
@@ -45,6 +43,31 @@ public class Segment {
 	boolean RXT;
 	
 	// Constructor for Segments to be sent
+	public Segment(Segment segmentToCopy)throws Exception{
+		this.checksum = segmentToCopy.checksum;
+		this.payloadLength = segmentToCopy.payloadLength;
+		this.segmentLength = segmentToCopy.segmentLength;
+		this.segmentPayloadData = segmentToCopy.segmentPayloadData;
+		this.segmentHeader = segmentToCopy.segmentHeader;
+		this.segmentBytes = segmentToCopy.segmentBytes;
+		this.flags = segmentToCopy.flags;
+		this.isACK = segmentToCopy.isACK;
+		this.isSYN = segmentToCopy.isSYN;
+		this.isFIN = segmentToCopy.isFIN;
+		this.sequenceNumber = segmentToCopy.sequenceNumber;
+		this.ACKNumber = segmentToCopy.ACKNumber;
+		this.expectedACK = segmentToCopy.expectedACK;
+		this.packetTime = segmentToCopy.packetTime;
+		this.snd = segmentToCopy.snd;
+		this.rcv = segmentToCopy.rcv;
+		this.drop = segmentToCopy.drop;
+		this.corr = segmentToCopy.corr;
+		this.dup = segmentToCopy.dup;
+		this.rord = segmentToCopy.rord;
+		this.dely = segmentToCopy.dely;
+		this.DA = segmentToCopy.DA;
+		this.RXT = segmentToCopy.RXT;
+	}
 	public Segment(byte[] data, int seqNum, int ACKNum, boolean ACK, boolean SYN, boolean FIN) throws Exception{
 		// Process packet information
 		this.segmentPayloadData = data;
@@ -81,7 +104,13 @@ public class Segment {
 		bb.clear();
 		bb.putInt(this.flags);
 		System.arraycopy(bb.array(), 0, this.segmentHeader, 8, 4);
-		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, 16);
+		bb.clear();
+		if (this.segmentPayloadData != null){
+			bb.putInt(this.segmentPayloadData.length);
+		}
+		else bb.putInt(0);
+		System.arraycopy(bb.array(), 0, this.segmentHeader, 12, 4);
+		System.arraycopy(this.checksum, 0, this.segmentHeader, 16, 16);
 		
 		// Create Segment
 		if (this.isSYN == true && this.isACK == false){
@@ -111,19 +140,24 @@ public class Segment {
 		this.RXT = false;
 	}
 	
-	// Constructor for Segments received for processing 
 	public Segment(byte[] incomingSegmentData) throws Exception{
-		this.segmentBytes = incomingSegmentData;
-		this.segmentLength = this.segmentBytes.length;
+		// this.segmentBytes = incomingSegmentData;
+		// this.segmentLength = this.segmentBytes.length;
 		// Process Header
 		this.segmentHeader = new byte[headerLength];
-		System.arraycopy(this.segmentBytes, 0, this.segmentHeader, 0, headerLength);
+		System.arraycopy(incomingSegmentData, 0, this.segmentHeader, 0, headerLength);
 		ByteBuffer bb = ByteBuffer.wrap(this.segmentHeader);
 		this.sequenceNumber = bb.getInt();
 		this.ACKNumber = bb.getInt();
 		this.flags = bb.getInt();
+		this.payloadLength = bb.getInt();
 		this.checksum = new byte[checksumLength];
-		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, checksumLength);
+		System.arraycopy(this.segmentHeader, 16, this.checksum, 0, checksumLength);
+		this.segmentLength = headerLength + this.payloadLength;
+		this.segmentBytes = new byte[this.segmentLength];
+		System.arraycopy(incomingSegmentData, 0, this.segmentBytes, 0, this.segmentLength);
+		// Changed to what is above
+//		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, checksumLength);
 		if ((this.flags & ACKbit) != 0){
 			this.isACK = true;
 		}
@@ -138,16 +172,13 @@ public class Segment {
 		else this.isFIN = false;
 		
 		// Process Data
-		if (this.segmentLength > headerLength){
-			this.segmentPayloadData = new byte[this.segmentLength - headerLength];
-			System.arraycopy(this.segmentBytes, headerLength, this.segmentPayloadData, 0, (this.segmentLength - headerLength));
+		if (this.payloadLength > 0 && !this.isACK && !this.isFIN){
+			this.segmentPayloadData = new byte[this.payloadLength];
+			System.arraycopy(this.segmentBytes, headerLength, this.segmentPayloadData, 0, (this.payloadLength));
 		}
 		else this.segmentPayloadData = null;
-		if (this.isSYN){
+		if (this.isSYN || this.segmentPayloadData == null){
 			this.payloadLength = 0;
-		}
-		else {
-			this.payloadLength = this.segmentPayloadData.length;
 		}
 		
 		this.segmentLength = headerLength + this.payloadLength;
@@ -231,7 +262,7 @@ public class Segment {
 	// Implement Checksum creation
 	public byte[] createChecksum(byte[] data) throws Exception{
 		MessageDigest checksumDigest = MessageDigest.getInstance("MD5");
-		if (data != null && (this.isSYN == false)){
+		if (data != null && this.isSYN == false && this.isACK == false && this.isFIN == false){
 			checksumDigest.update(data);
 			return checksumDigest.digest();
 		}
