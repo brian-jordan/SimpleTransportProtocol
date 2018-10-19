@@ -10,12 +10,14 @@ public class Sender {
 	static byte[] fileData_s;
 	static int receiver_port;
 	static InetAddress receiver_host_ip;
+	static long maxRTO = 60000;
 	
 	// Socket Constants
 	static DatagramSocket senderSocket;
 	static DatagramPacket incomingSegment;
 	static Segment received;
 	static Segment nextPacket;
+	static Segment resendingSegment;
 	static byte[] recvBuffer;
 	static int senderSequenceNumber;
 	static int senderACKNumber;
@@ -32,7 +34,6 @@ public class Sender {
 	static Random random;
 	
 	// Acting on PLD
-	static Thread tamperedSenderThread;
 	
 	static Segment dupSegment;
 	static Segment reorderingSegment;
@@ -64,7 +65,10 @@ public class Sender {
 	static int numDupAcks;
 	
 	// Set of Segments
-	static HashMap<Integer, Long> segmentSentTimeHM;
+//	static HashMap<Integer, Long> segmentSentTimeHM;
+	static boolean calculateRTT;
+	static long RTTReference;
+	static int RTTWaiting;
 	
 	// Begin Time
 	static long startTime;
@@ -115,13 +119,12 @@ public class Sender {
 		maxDelay = Integer.parseInt(args[12]);
 		seed = Integer.parseInt(args[13]);
 		
-		System.out.println("Arguments Accepted Receiver");
-		
 		// Convert file into byte array
 		fileData_s = pdfToByteArray(fileName_s);
 		
 		// Initialize HashMap for segment send times
-		segmentSentTimeHM = new HashMap<>();
+//		segmentSentTimeHM = new HashMap<>();
+		
 		
 		// Find length of file to send during initialization
 		fileLength = fileData_s.length;
@@ -131,10 +134,7 @@ public class Sender {
 		
 		// Initialize Sender Log File
 		senderLog = new PrintWriter("Sender_log.txt");
-		System.out.println("<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
-		senderLog.println("<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
-		
-		System.out.println("sender log initialized");
+		senderLog.println("<event>     <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
 		
 		// Initialize Data Variables
 		numSegmentsTrans = 0;
@@ -168,14 +168,9 @@ public class Sender {
 		
 		random = new Random(seed);
 		
-		System.out.println("Connection Established sender");
-		
-		System.out.println("Sender file length: " + fileLength);
-		
 		// Initialize Receiver Thread
 		Thread receiverThread = new Thread(){
 			public void run(){
-				System.out.println("Sender: ready to receive ACKs");
 				while (receivingACKs == true){
 					// Receive first ACK
 					try {
@@ -186,19 +181,18 @@ public class Sender {
 						}
 						else if (multiACKcnt == 3){
 							byte[] resendDataSegment;
-							if ((fileLength - leftEdgePointer) < MSS){
-								resendDataSegment = new byte[fileLength - leftEdgePointer];
-							}
-							else resendDataSegment = new byte[MSS];
-							System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
-							nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							resendDataSegment = new byte[MSS];
+							System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, MSS);
+							resendingSegment = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							resendingSegment.RXT = true;
+//							segmentSentTimeHM.put(resendingSegment.expectedACK, (long)-1);
+							calculateRTT = false;
 							numFastRetrans++;
-							sendSegment(nextPacket);
-						
+							timeoutTimer = System.currentTimeMillis();
 							multiACKcnt = 0;
+							sendSegment(resendingSegment);
 						}
 						if (received.ACKNumber - 1 == fileLength){
-							System.out.println("Print Me !!!!");
 							receivingACKs = false;
 							sendingData = false;
 							senderSequenceNumber = received.ACKNumber;
@@ -207,22 +201,13 @@ public class Sender {
 						e.printStackTrace();
 					}
 				}
-				System.out.println("Receiver Thread Stopped");
 			}
 		};
 		
-		tamperedSenderThread = new Thread(){
+		Thread tamperedSenderThread = new Thread(){
 			public void run(){
 				while (sendingData == true){
-					if(multipleSegment == true){
-						try {
-							sendTamperedSegment(dupSegment);
-							multipleSegment = false;
-						} catch (Exception e) {
-							e.printStackTrace();
-						}
-					}
-					if (reordering == true && reorderCount - 2 == maxOrder){
+					if (reordering == true && reorderCount == maxOrder){
 						try {
 							sendTamperedSegment(reorderingSegment);
 							reorderCount = 0;
@@ -245,7 +230,6 @@ public class Sender {
 						e1.printStackTrace();
 					}
 				}
-				System.out.println("Tamper Thread Stopped");
 			}
 		};
 		// Maintains numTimeoutRetrans, numFastRetrans, numDupAcks
@@ -257,24 +241,30 @@ public class Sender {
 		// Initialize Sender Thread
 		Thread senderThread = new Thread(){
 			public void run(){
-				System.out.println("sender: Sending Data");
 				while (sendingData == true){
-					// System.out.println(nextSendPointer);
-					// System.out.println(leftEdgePointer);
-					while (((nextSendPointer + MSS - 1) < rightEdgePointer) && ((nextSendPointer + MSS - 1) < fileLength)){
-						try {
-							sleep(100);
-						} catch (InterruptedException e1) {
-							e1.printStackTrace();
-						}
+					calculateRTT = true;
+					RTTReference = System.currentTimeMillis();
+					RTTWaiting = nextSendPointer + 1 + MSS;
+					while (((nextSendPointer + MSS - 1) < rightEdgePointer) && rightEdgePointer <= fileLength){
 						byte[] nextDataSegment = new byte[MSS];
 						System.arraycopy(fileData_s, nextSendPointer, nextDataSegment, 0, MSS);
 						try {
 							nextPacket = new Segment(nextDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
+							if (sendingData == true && nextSendPointer == leftEdgePointer){
+								timeoutTimer = System.currentTimeMillis();
+								calculateRTT = true;
+								RTTReference = System.currentTimeMillis();
+								RTTWaiting = nextSendPointer + 1 + MSS;
+							}
+							nextSendPointer = nextSendPointer + MSS;
 							sendSegment(nextPacket);
-							nextSendPointer = nextSendPointer + nextDataSegment.length;
 						} catch (Exception e) {
 							e.printStackTrace();
+						}
+						try {
+							sleep(1);
+						} catch (InterruptedException e1) {
+							e1.printStackTrace();
 						}
 					}
 					if ((fileLength - nextSendPointer) < MSS && (nextSendPointer < fileLength)){
@@ -282,29 +272,44 @@ public class Sender {
 						System.arraycopy(fileData_s, nextSendPointer, lastDataSegment, 0, fileLength - nextSendPointer);
 						try {
 							nextPacket = new Segment(lastDataSegment, nextSendPointer + 1, senderACKNumber, false, false, false);
-							sendSegment(nextPacket);
+							if (sendingData == true && nextSendPointer == leftEdgePointer){
+								timeoutTimer = System.currentTimeMillis();
+								calculateRTT = true;
+								RTTReference = System.currentTimeMillis();
+								RTTWaiting = nextSendPointer + 1 + lastDataSegment.length;
+							}
 							nextSendPointer = nextSendPointer + lastDataSegment.length;
+							sendSegment(nextPacket);
 						} catch (Exception e) {
 							e.printStackTrace();
 						}
 					}
 					if ((System.currentTimeMillis() - timeoutTimer) >= timeout){
 						byte[] resendDataSegment;
+						resendDataSegment = new byte[MSS];
 						if ((fileLength - leftEdgePointer) < MSS){
 							resendDataSegment = new byte[fileLength - leftEdgePointer];
 						}
 						else resendDataSegment = new byte[MSS];
 						System.arraycopy(fileData_s, leftEdgePointer, resendDataSegment, 0, resendDataSegment.length);
 						try {
-							nextPacket = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							resendingSegment = new Segment(resendDataSegment, leftEdgePointer + 1, senderACKNumber, false, false, false);
+							resendingSegment.RXT = true;
+//							segmentSentTimeHM.put(resendingSegment.expectedACK, (long)-1);
+							calculateRTT = false;
 							numTimeoutRetrans++;
-							sendSegment(nextPacket);
+							timeoutTimer = System.currentTimeMillis();
+							sendSegment(resendingSegment);
 						} catch (Exception e) {
 							e.printStackTrace();
 						}
 					}
+					try {
+						sleep(1);
+					} catch (InterruptedException e1) {
+						e1.printStackTrace();
+					}
 				}
-				System.out.println("Sender Thread Stopped");
 			}
 		};
 		
@@ -319,10 +324,7 @@ public class Sender {
 		}
 		
 		// Terminate Connection with Receiver
-		System.out.println("Connection is being terminated");
 		terminateConnection();
-		
-		System.out.println("Connection terminated sender");
 
 		
 		// Print Log Statistics and Close Log
@@ -361,9 +363,6 @@ public class Sender {
 		
 		// Receive first ACK
 		received = receiveSegment();
-		if (! (received.isSYN && received.isACK && (received.ACKNumber == senderSequenceNumber + 1))){
-			throw new ConnectionException();
-		}
 		
 		// Adjust Sequence and ACK Numbers
 		senderSequenceNumber = received.ACKNumber;
@@ -383,15 +382,9 @@ public class Sender {
 		
 		// Receive ACK
 		received = receiveSegment();
-//		if (!(received.isACK && received.ACKNumber == senderSequenceNumber + 1)){
-//			throw new ConnectionException();
-//		}
 		
 		// Receive FIN
 		received = receiveSegment();
-//		if (! (received.isFIN && (received.ACKNumber == senderSequenceNumber + 1))){
-//			throw new ConnectionException();
-//		}
 		
 		senderSequenceNumber = received.ACKNumber;
 		senderACKNumber = received.sequenceNumber + 1;
@@ -413,7 +406,7 @@ public class Sender {
 		}
 		else if(random.nextFloat() < pDuplicate){
 			dupSegment =  new Segment(segmentToPLD);
-			multipleSegment = true;
+			sendSegment(dupSegment);
 			segmentToPLD.dup = true;
 			numSegmentsDuplicated++;
 		}
@@ -430,19 +423,20 @@ public class Sender {
 			numSegmentsCorruptedPLD++;
 		}
 		else if (random.nextFloat() < pOrder && reordering == false){
-			reordering = true;
 			reorderingSegment = new Segment(segmentToPLD);
 			reorderCount = 0;
 			reorderingSegment.rord = true;
 			segmentToPLD.rord = true;
+			reordering = true;
 			numSegmentsReOrderedPLD++;
 		}
 		else if (random.nextFloat() < pDelay){
-			delaying = true;
 			delayPacketTime = (long)random.nextInt(maxDelay);
 			delayTimer = System.currentTimeMillis();
 			delayedSegment = new Segment(segmentToPLD);
+			segmentToPLD.dely = true;
 			delayedSegment.dely = true;
+			delaying = true;
 			numSegmentsDelayedPLD++;
 		}
 
@@ -454,25 +448,24 @@ public class Sender {
 		segmentToLog.setEvent();
 		segmentToLog.setTypeOfPacket();
 		segmentToLog.setTime();
-		System.out.printf("sender: %s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
-		senderLog.printf("%s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
+		senderLog.printf("%-12s%-7.2f%-17s%-13d%-23d%-12d\n", segmentToLog.event, ((segmentToLog.packetTime - startTime) / (double)1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
 	}
 	
 	// Print Log Statistics
 	public static void logStats(){
-		senderLog.println("=========================================");
-		senderLog.printf("Size of the file: %d Bytes\n", fileLength);
-		senderLog.printf("Segments transmitted: %d\n", numSegmentsTrans);
-		senderLog.printf("Number of Segments handled by PLD: %d\n", numSegmentsHandledPLD);
-		senderLog.printf("Number of Segments Dropped: %d\n", numSegmentsDroppedPLD);
-		senderLog.printf("Number of Segments Corrupted: %d\n", numSegmentsCorruptedPLD);
-		senderLog.printf("Number of Segments Re-ordered: %d\n", numSegmentsReOrderedPLD);
-		senderLog.printf("Number of Segments Duplicated: %d\n", numSegmentsDuplicated);
-		senderLog.printf("Number of Segments Delayed: %d\n", numSegmentsDelayedPLD);
-		senderLog.printf("Number of Retransmissions due to timeout: %d\n", numTimeoutRetrans);
-		senderLog.printf("Number of Fast Retransmissions: %d\n", numFastRetrans);
-		senderLog.printf("Number of Duplicate Acknowledgements received: %d\n", numDupAcks);
-		senderLog.println("=========================================");
+		senderLog.println("==================================================");
+		senderLog.printf("%-50s%d Bytes\n", "Size of the file:",fileLength);
+		senderLog.printf("%-50s%d\n", "Segments transmitted:",numSegmentsTrans);
+		senderLog.printf("%-50s%d\n", "Number of Segments handled by PLD:", numSegmentsHandledPLD);
+		senderLog.printf("%-50s%d\n", "Number of Segments Dropped:", numSegmentsDroppedPLD);
+		senderLog.printf("%-50s%d\n", "Number of Segments Corrupted:", numSegmentsCorruptedPLD);
+		senderLog.printf("%-50s%d\n", "Number of Segments Re-ordered:", numSegmentsReOrderedPLD);
+		senderLog.printf("%-50s%d\n", "Number of Segments Duplicated: ", numSegmentsDuplicated);
+		senderLog.printf("%-50s%d\n", "Number of Segments Delayed: ", numSegmentsDelayedPLD);
+		senderLog.printf("%-50s%d\n", "Number of Retransmissions due to timeout:", numTimeoutRetrans);
+		senderLog.printf("%-50s%d\n", "Number of Fast Retransmissions:", numFastRetrans);
+		senderLog.printf("%-50s%d\n", "Number of Duplicate Acknowledgements received:", numDupAcks);
+		senderLog.println("==================================================");
 	}
 	
 	// Maintain RTT value
@@ -483,14 +476,10 @@ public class Sender {
 	}
 	
 	public static void sendSegment(Segment sendingPacket) throws Exception{
-		if (!(sendingPacket.isSYN || sendingPacket.isACK || sendingPacket.isFIN)){
+		if (!(sendingPacket.isSYN || sendingPacket.isACK || sendingPacket.isFIN || sendingPacket.dup)){
 			PLDmodule(sendingPacket);
 		}
 		if (sendingPacket.rord != true && sendingPacket.dely != true){
-			if (! sendingPacket.isACK && segmentSentTimeHM.containsKey(sendingPacket.expectedACK)){
-				segmentSentTimeHM.put(sendingPacket.expectedACK, (long)-1);
-				sendingPacket.RXT = true;
-			}
 			sendingPacket.createDatagramPacket(receiver_host_ip, receiver_port);
 			logSegment(sendingPacket);
 			if (reordering == true){
@@ -500,30 +489,23 @@ public class Sender {
 				senderSocket.send(sendingPacket.segment);
 			}
 			numSegmentsTrans++;
-			if (! sendingPacket.isACK && !segmentSentTimeHM.containsKey(sendingPacket.expectedACK)){
-				segmentSentTimeHM.put(sendingPacket.expectedACK, sendingPacket.packetTime);
-			}
-			if ((sendingPacket.sequenceNumber - 1) == leftEdgePointer && sendingData == true){
-				timeoutTimer = System.currentTimeMillis();
-			}
+//			if (!segmentSentTimeHM.containsKey(sendingPacket.expectedACK) && (sendingPacket.dup != true)){
+//				segmentSentTimeHM.put(sendingPacket.expectedACK, sendingPacket.packetTime);
+//			}
 		}
 	}
 	
 	public static void sendTamperedSegment(Segment sendingPacket) throws Exception{
-		if (segmentSentTimeHM.containsKey(sendingPacket.expectedACK)){
-			segmentSentTimeHM.put(sendingPacket.expectedACK, (long)-1);
-			sendingPacket.RXT = true;
-		}
 		sendingPacket.createDatagramPacket(receiver_host_ip, receiver_port);
 		logSegment(sendingPacket);
+		if (reordering == true){
+			reorderCount++;
+		}
 		senderSocket.send(sendingPacket.segment);
 		numSegmentsTrans++;
-		if (!segmentSentTimeHM.containsKey(sendingPacket.expectedACK)){
-			segmentSentTimeHM.put(sendingPacket.expectedACK, sendingPacket.packetTime);
-		}
-		if ((sendingPacket.sequenceNumber - 1) == leftEdgePointer && sendingData == true){
-			timeoutTimer = System.currentTimeMillis();
-		}
+//		if (!segmentSentTimeHM.containsKey(sendingPacket.expectedACK)){
+//			segmentSentTimeHM.put(sendingPacket.expectedACK, sendingPacket.packetTime);
+//		}
 	}
 	
 	public static Segment receiveSegment() throws Exception{
@@ -533,6 +515,7 @@ public class Sender {
 		
 		// Process Segment
 		received = new Segment(recvBuffer);
+		
 		// Add if it is a duplicate ACK
 		if (justACKd == received.ACKNumber && receivingACKs == true){
 			received.DA = true;
@@ -545,19 +528,12 @@ public class Sender {
 		}
 		logSegment(received);
 		
-		// Assuming that we do not adjust RTT when duplicate acks are received
-		if (segmentSentTimeHM.containsKey(received.ACKNumber) && (segmentSentTimeHM.get(received.ACKNumber) != -1) && (received.DA != true)){
-			adjustRTT(received.packetTime - segmentSentTimeHM.get(received.ACKNumber));
+		if (calculateRTT == true && RTTWaiting == received.ACKNumber && received.DA != true){
+			long potentialRTT = received.packetTime - RTTReference;
+			if(potentialRTT < maxRTO){
+				adjustRTT(potentialRTT);
+			}
 		}
 		return received;
-	}
-}
-
-class ConnectionException extends Exception{
-
-	private static final long serialVersionUID = 1L;
-
-	public ConnectionException(){
-		super("Connection Error");
 	}
 }

@@ -1,12 +1,16 @@
 import java.io.*;
 import java.net.*;
 import java.nio.*;
+import java.util.*;
 
 public class Receiver {
 	
 	// Incoming Data Buffer
 	static int fileLength_r;
 	static byte[] fileData_r;
+	
+	static ArrayList<Integer> receivedSequenceNumbers;
+	static int MSS;
 	
 	// Socket Constants
 	static DatagramSocket receiverSocket;
@@ -48,25 +52,19 @@ public class Receiver {
 		int receiver_port = Integer.parseInt(args[0]);
 		String fileName_r = args[1];
 		
-		System.out.println("Arguments Accepted Receiver");
-		
 		// Initialize Sender Log File
 		receiverLog = new PrintWriter("Receiver_log.txt");
-		receiverLog.println("<event> <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
-		
-		System.out.println("receiver log initialized");
+		receiverLog.println("<event>     <time> <type-of-packet> <seq-number> <number-of-bytes-data> <ack-number>");
 		
 		// Initialize connection with Sender
 		receiverSocket = new DatagramSocket(receiver_port);
 		establishConnection();
 		
-		System.out.println("Connection Established receiver");
-		// receiverLog.close();
-		
 		// Initialize Received Data Array
 		fileData_r = new byte[fileLength_r];
+		receivedSequenceNumbers = new ArrayList<>();
 		
-		System.out.println("Receiver file length" + fileLength_r);
+		MSS = 0;
 		
 		// Begin Accepting Data Segments
 		nextACKIndex = 0;
@@ -87,8 +85,6 @@ public class Receiver {
 		
 		// Terminate Connection with Sender
 		terminateConnection();
-		
-		System.out.println("Connection terminated receiver");
 		
 		// Print Log Statistics and Close Log
 		logStats();
@@ -120,15 +116,13 @@ public class Receiver {
 		
 		// Receive First SYN
 		received = receiveSegment();
+		startTime = System.currentTimeMillis();
 		
 		// Get Sender Information
 		sender_host_ip = incomingSegment.getAddress();
 		sender_port = incomingSegment.getPort();
 		
 		// Process Segment
-		if (! received.isSYN){
-			throw new ConnectionException();
-		}
 		ByteBuffer bb = ByteBuffer.wrap(received.segmentPayloadData);
 		fileLength_r = bb.getInt();
 		
@@ -143,9 +137,6 @@ public class Receiver {
 		received = receiveSegment();
 		
 		// Process Segment
-		if (! (received.isACK && (received.ACKNumber == receiverSequenceNumber + 1))){
-			throw new ConnectionException();
-		}
 		
 		// Adjust Sequence and ACK Numbers
 		receiverSequenceNumber++;
@@ -162,9 +153,6 @@ public class Receiver {
 		
 		// Receiver Final ACK
 		received = receiveSegment();
-		if (! (received.isACK && (received.ACKNumber == receiverSequenceNumber + 1))){
-			throw new ConnectionException();
-		}
 	}
 
 	// Logs segment information
@@ -173,49 +161,50 @@ public class Receiver {
 		segmentToLog.setEvent();
 		segmentToLog.setTypeOfPacket();
 		segmentToLog.setTime();
-		System.out.printf("receiver: %s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
-		receiverLog.printf("%s     %f     %s     %d     %d     %d\n", segmentToLog.event, (double)((segmentToLog.packetTime - startTime) / 1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
+		receiverLog.printf("%-12s%-7.2f%-17s%-13d%-23d%-12d\n", segmentToLog.event, ((segmentToLog.packetTime - startTime) / (double)1000), segmentToLog.typeOfPacket, segmentToLog.sequenceNumber, segmentToLog.payloadLength, segmentToLog.ACKNumber);
 	}
 	
 	public static void receiveDataSegments()throws Exception{
 		while (receivingData == true){
 			received = receiveSegment();
 			if (received.isFIN == true){
-				System.out.println("Done Receiving Data");
 				receivingData = false;
 				continue;
 			}
 			numDataSegmentsReceived++;
 			amountDataReceived += received.payloadLength;
+			if (MSS == 0){
+				MSS = received.payloadLength;
+			}
 			if (received.corr == true){
-				System.out.println("Data Corrupt");
 				numDataSegmentsWBitErrors++;
 				continue;
 			}
-			if (fileData_r[received.sequenceNumber - 1] != 0){
+			if(receivedSequenceNumbers.contains(received.sequenceNumber)){
 				numDupDataSegments++;
 			}
-			else System.arraycopy(received.segmentPayloadData, 0, fileData_r, (received.sequenceNumber - 1), received.payloadLength);
+			else {
+				System.arraycopy(received.segmentPayloadData, 0, fileData_r, (received.sequenceNumber - 1), received.payloadLength);
+				receivedSequenceNumbers.add(received.sequenceNumber);
+			}
 			nextACK = new Segment(null, receiverSequenceNumber, receiverACKNumber, true, false, false);
 			if (received.sequenceNumber == receiverACKNumber){
-//				System.out.println("Entered Chage ACK Number LOOP");
-				for (int i = receiverACKNumber - 1; i < fileLength_r + 1; i++){
-//					System.out.println("ACK Value " + receiverACKNumber);
-					if (i == fileLength_r){
+				int i = receiverACKNumber;
+				while (true){
+					if (i >= fileLength_r){
 						receiverACKNumber = fileLength_r + 1;
 						nextACK = new Segment(null, receiverSequenceNumber, receiverACKNumber, true, false, false);
 						break;
-					}
-					if (fileData_r[i] == 0){
-//						System.out.println("New ACK Vaule: " + receiverACKNumber);
-						receiverACKNumber = i + 1;
+						}
+					if (!receivedSequenceNumbers.contains(i)){
+						receiverACKNumber = i;
 						nextACK = new Segment(null, receiverSequenceNumber, receiverACKNumber, true, false, false);
 						break;
 					}
+					i = i + MSS;
 				}
 			}
 			else {
-				System.out.println("Duplicate ACK");
 				nextACK.DA = true;
 				numDupAcksSent++;
 			}
@@ -227,7 +216,7 @@ public class Receiver {
 		incomingSegment = new DatagramPacket(new byte[1024], 1024);
 		receiverSocket.receive(incomingSegment);
 		recvBuffer = incomingSegment.getData();
-		startTime = System.currentTimeMillis();
+
 		
 		// Process Segment
 		received = new Segment(recvBuffer);
@@ -245,14 +234,14 @@ public class Receiver {
 	
 	// Print Log Statistics
 	public static void logStats(){
-		receiverLog.println("=========================================");
-		receiverLog.printf("Amount of Data Received: %d Bytes\n", amountDataReceived);
-		receiverLog.printf("Total segments received: %d\n", numSegmentsReceived);
-		receiverLog.printf("Data segments received: %d\n", numDataSegmentsReceived);
-		receiverLog.printf("Data Segments with bit errors: %d\n", numDataSegmentsWBitErrors);
-		receiverLog.printf("Duplicate data segments received: %d\n", numDupDataSegments);
-		receiverLog.printf("Duplicate Acks sent: %d\n", numDupAcksSent);
-		receiverLog.println("=========================================");
+		receiverLog.println("==================================================");
+		receiverLog.printf("%-35s%d Bytes\n", "Amount of Data Received:", amountDataReceived);
+		receiverLog.printf("%-35s%d\n", "Total segments received:", numSegmentsReceived);
+		receiverLog.printf("%-35s%d\n", "Data segments received:", numDataSegmentsReceived);
+		receiverLog.printf("%-35s%d\n", "Data Segments with bit errors:", numDataSegmentsWBitErrors);
+		receiverLog.printf("%-35s%d\n", "Duplicate data segments received:", numDupDataSegments);
+		receiverLog.printf("%-35s%d\n", "Duplicate Acks sent:", numDupAcksSent);
+		receiverLog.println("==================================================");
 	}
 
 }

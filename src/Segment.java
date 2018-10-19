@@ -156,8 +156,6 @@ public class Segment {
 		this.segmentLength = headerLength + this.payloadLength;
 		this.segmentBytes = new byte[this.segmentLength];
 		System.arraycopy(incomingSegmentData, 0, this.segmentBytes, 0, this.segmentLength);
-		// Changed to what is above
-//		System.arraycopy(this.checksum, 0, this.segmentHeader, 12, checksumLength);
 		if ((this.flags & ACKbit) != 0){
 			this.isACK = true;
 		}
@@ -208,35 +206,32 @@ public class Segment {
 	
 	public void setEvent(){
 		StringBuilder eventSB = new StringBuilder();
-		if (this.snd == true){
-			eventSB.append("snd/");
+		if (this.snd == true && this.drop == false){
+			eventSB.append("snd");
 		}
 		else if (this.rcv == true){
-			eventSB.append("rcv/");
+			eventSB.append("rcv");
 		}
 		else if (this.drop == true){
-			eventSB.append("drop/");
+			eventSB.append("drop");
 		}
 		if (this.corr == true){
-			eventSB.append("corr/");
+			eventSB.append("/corr");
 		}
 		else if (this.dup == true){
-			eventSB.append("dup/");
+			eventSB.append("/dup");
 		}
 		else if (this.rord == true){
-			eventSB.append("rord/");
+			eventSB.append("/rord");
 		}
 		else if (this.dely == true){
-			eventSB.append("dely/");
+			eventSB.append("/dely");
 		}
 		if (this.DA == true){
-			eventSB.append("DA/");
+			eventSB.append("/DA");
 		}
 		if (this.RXT == true){
-			eventSB.append("RXT");
-		}
-		if (eventSB.charAt(eventSB.length() - 1) == '/'){
-			eventSB.deleteCharAt(eventSB.length() - 1);
+			eventSB.append("/RXT");
 		}
 		this.event = eventSB.toString();
 	}
